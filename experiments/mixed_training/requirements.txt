@@ -1,0 +1,7 @@
+# Standalone suite: no TensorFlow / tensorflow_io / Prophet required.
+# Install a PyTorch build suitable for the remote accelerator beforehand if needed.
+torch>=2.2,<3
+numpy>=1.26,<3
+pandas>=2.1,<3
+scipy>=1.11,<2
+matplotlib>=3.8,<4

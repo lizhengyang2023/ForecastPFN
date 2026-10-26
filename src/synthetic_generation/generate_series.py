@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from datetime import date
 from pandas.tseries.frequencies import to_offset
-from constants import *
+from prior_constants import BASE_START, BASE_END, CONTEXT_LENGTH
 from config_variables import Config
 from generate_series_components import make_series
 from utils import sample_scale, get_transition_coefficients

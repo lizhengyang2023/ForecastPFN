@@ -1,0 +1,25 @@
+{
+  "models": ["linear", "dlinear", "mlp", "gru", "transformer"],
+  "seeds": [42, 43, 44],
+  "fractions": [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1],
+  "steps": 2000,
+  "batch_size": 64,
+  "eval_every": 100,
+  "eval_batch_size": 512,
+  "learning_rate": 0.001,
+  "clip_grad": 1.0,
+  "normalization_epsilon": 0.0001,
+  "synthetic_series": 1024,
+  "windows_per_series": 4,
+  "data_seed": 2026,
+  "threads": 1,
+  "datasets": {
+    "exchange": {"file": "exchange_rate/exchange_rate.csv", "target": "0", "frequency": "D", "context": 96, "horizon": 14, "season": 7, "kernel": 7},
+    "etth1": {"file": "ETT-small/ETTh1.csv", "target": "OT", "frequency": "H", "context": 96, "horizon": 24, "season": 24, "kernel": 25},
+    "etth2": {"file": "ETT-small/ETTh2.csv", "target": "OT", "frequency": "H", "context": 96, "horizon": 24, "season": 24, "kernel": 25},
+    "electricity": {"file": "electricity/electricity.csv", "target": "OT", "frequency": "H", "context": 96, "horizon": 24, "season": 24, "kernel": 25},
+    "traffic": {"file": "traffic/traffic.csv", "target": "OT", "frequency": "H", "context": 96, "horizon": 24, "season": 24, "kernel": 25},
+    "weather": {"file": "weather/weather.csv", "target": "T (degC)", "frequency": "H", "duplicate_policy": "drop_identical", "regularize": "10min", "resample": "1h", "samples_per_bin": 6, "context": 96, "horizon": 24, "season": 24, "kernel": 25},
+    "illness": {"file": "illness/national_illness.csv", "target": "OT", "frequency": "W", "context": 104, "horizon": 14, "season": 52, "kernel": 13}
+  }
+}

@@ -2,7 +2,6 @@
 Module containing different scaler functions
 """
 import tensorflow as tf
-import tensorflow_io
 from tensorflow.keras import layers
 import numpy as np
 

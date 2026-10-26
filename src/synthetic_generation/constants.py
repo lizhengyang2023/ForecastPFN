@@ -2,11 +2,8 @@
 Module containing constants for synthetic data generation
 """
 
-from datetime import date
 import tensorflow as tf
-
-BASE_START = date.fromisoformat("1885-01-01").toordinal()
-BASE_END = date.fromisoformat("2023-12-31").toordinal() + 1
+from prior_constants import BASE_START, BASE_END, CONTEXT_LENGTH
 
 PRODUCT_SCHEMA = {
     "doc": "Timeseries sample",
@@ -19,8 +16,6 @@ PRODUCT_SCHEMA = {
         {"name": "noise", "type": ["float"]}
     ],
 }
-
-CONTEXT_LENGTH = 1_000
 
 TF_SCHEMA = {
     "id": tf.io.FixedLenFeature([], dtype=tf.string),

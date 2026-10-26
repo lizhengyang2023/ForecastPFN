@@ -1,6 +1,5 @@
 from typing import Dict
 import tensorflow as tf
-import tensorflow_io
 from tensorflow.keras import layers, Model, Input
 from constants import *
 from prepare_dataset import position_encoding
@@ -78,7 +77,6 @@ class BaseModel(tf.keras.Model):
 
     def call(self, x: Dict[str, tf.Tensor]):
         ts, history, target_ts, task = x['ts'], x['history'], x['target_ts'], x['task']
-        print(ts.shape, ts)
 
         # Build position encodings
         year = self.tc(ts, YEAR)

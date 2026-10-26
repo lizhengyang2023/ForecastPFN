@@ -1,6 +1,8 @@
 .ipynb_checkpoints
 **/*.log
 __pycache__/
+.experiment_deps/
+experiments/results/
 **.pyc
 
 FEDformer/checkpoints/

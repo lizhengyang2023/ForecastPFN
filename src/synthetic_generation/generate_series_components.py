@@ -3,7 +3,6 @@ Module to generate trend and seasonal components of series
 """
 import numpy as np
 import pandas as pd
-from constants import *
 from series_config import SeriesConfig
 from utils import shift_axis, weibull_noise, get_random_walk_series
 from collections import defaultdict

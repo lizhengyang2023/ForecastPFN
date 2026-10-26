@@ -7,7 +7,6 @@ from typing import Dict
 import pandas as pd
 import numpy as np
 import tensorflow as tf
-import tensorflow_io
 from config_variables import Config
 from constants import PADDING, HISTORY_LEN, TARGET_LEN, TRIM_LEN, TARGET_INDEX, \
     SINGLE_POINT, MEAN_TO_DATE, STDEV_TO_DATE
