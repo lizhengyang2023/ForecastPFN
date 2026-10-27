@@ -11,7 +11,7 @@ class Config:
     @classmethod
     def set_freq_variables(cls, is_sub_day):
         if is_sub_day:
-            cls.frequencies = [("min", 1/1440), ("H", 1/24), ("D", 1), ("W", 7), ("MS", 30), ("Y", 12)]
+            cls.frequencies = [("min", 1/1440), ("h", 1/24), ("D", 1), ("W", 7), ("MS", 30), ("Y", 12)]
             cls.frequency_names = ["minute", "hourly", "daily", "weekly", "monthly", "yearly"]
             cls.freq_and_index = (("minute", 0), ("hourly", 1), ("daily", 2), ("weekly", 3), ("monthly", 4), ("yearly", 5))
         else:

@@ -11,6 +11,7 @@ from .datasets import load_real, normalize
 from .evaluate import metrics, baseline_predictions
 from .models import build_model
 from .sampler import CyclingSampler, quota
+from .synthetic import load_synthetic
 
 
 class Invariants(unittest.TestCase):
@@ -78,6 +79,15 @@ class Invariants(unittest.TestCase):
             for split in splits.values():
                 targets=split['origins'][:,None]+np.arange(10)
                 self.assertFalse(np.isin(targets,[166,167,168]).any())
+
+    def test_hourly_synthetic_generation_with_compatible_alias(self):
+        with tempfile.TemporaryDirectory() as directory:
+            spec=dict(frequency='H',context=4,horizon=2)
+            config=dict(synthetic_series=1,windows_per_series=1,data_seed=42,
+                        normalization_epsilon=1e-4)
+            synthetic,_=load_synthetic(Path(directory)/'hourly.npz',spec,config)
+            self.assertEqual(synthetic['x'].shape,(1,4))
+            self.assertEqual(synthetic['y'].shape,(1,2))
 
 
 if __name__=='__main__':

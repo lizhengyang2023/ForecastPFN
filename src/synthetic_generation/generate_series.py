@@ -34,7 +34,7 @@ def __generate(
     if freq == "min":
         minute = np.random.uniform(0.0, 1.0)
         h = np.random.uniform(0.0, 0.2)
-    elif freq == "H":
+    elif freq == "h":
         minute = np.random.uniform(0.0, 0.2)
         h = np.random.uniform(0.0, 1)
     elif freq == "D":
@@ -112,4 +112,3 @@ def generate(
     }
 
     return cfg1, pd.DataFrame(data=dataframe_data, index=series1['dates'])#.clip(lower=0.0)
-

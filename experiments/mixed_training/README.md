@@ -15,6 +15,8 @@ python -m pip install -r experiments/mixed_training/requirements.txt
 python -m experiments.mixed_training.tests
 ```
 
+注意：远程环境快照中的 pandas 3.1.0 超出本目录 `requirements.txt` 声明的 `<3` 范围。本次已将合成小时频率改为新版 pandas 兼容的 `h` 别名；若运行中再遇到其他 pandas 3.x 兼容问题，请使用依赖文件声明的 pandas 2.x 环境。
+
 远程 GPU 主机应预先安装适配其驱动的 PyTorch 版本。`--device cpu` 强制 CPU，`--device cuda:0` 显式选 GPU；默认 `auto`。软件版本及设备型号会写入实验元数据。
 
 ## 直接执行完整七数据集扩展（本地未启动该训练网格）
