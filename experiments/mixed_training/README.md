@@ -31,7 +31,7 @@ python -m experiments.mixed_training.run --stage prepare --data-root /path/to/lo
 python -m experiments.mixed_training.run --stage full --data-root /path/to/long_term_forecast --output experiments/results/mixed_full
 
 # 独立核验全部预测指标、来源曝光和 checkpoint 选择，再生成报告。
-python -m experiments.mixed_training.verify --output experiments/results/mixed_full --expected-runs 945
+python -m experiments.mixed_training.verify --output experiments/results/mixed_full --expected-runs 945 --require-grid
 python -m experiments.mixed_training.summarize --output experiments/results/mixed_full
 ```
 
@@ -58,7 +58,7 @@ $dataRoot = 'D:\Code\TimeSeries\datasets\tslib-data\long_term_forecast'
 
 # Exchange Rate：5 模型 × 3 seeds × 9 比例，共 135 runs。
 & $python -m experiments.mixed_training.run --stage screen --data-root $dataRoot --output experiments/results/mixed_exchange
-& $python -m experiments.mixed_training.verify --output experiments/results/mixed_exchange --expected-runs 135
+& $python -m experiments.mixed_training.verify --output experiments/results/mixed_exchange --expected-runs 135 --require-grid --datasets exchange
 & $python -m experiments.mixed_training.summarize --output experiments/results/mixed_exchange
 ```
 
@@ -112,7 +112,7 @@ Weather 的本地文件有相同时间/目标值的重复记录与内部缺测�
 - 每个数据集的比例曲线（MAE/RMSE × best/final）、模型对比图、训练曲线、固定首个测试起点的预测示例，以及原生成器采样图。
 - `report.md`：便于阅读的图文报告。标准差不是置信区间；不直接平均不同量纲数据集的原始 RMSE。
 
-`verify` 独立从保存的预测重算误差、检查相同比例组的初始化配对、曝光总量、完整测试窗口和验证选择规则。`tests` 检查时间边界、只依赖历史的缩放、缺测目标排除、配额、五模型梯度和 baseline。
+`verify` 独立从保存的预测重算误差、检查相同比例组的初始化配对、曝光总量、完整测试窗口和验证选择规则。`--require-grid` 逐个核对默认配置中的数据集、模型、seed、比例组合；缺失或多余组合均返回非零退出码。`metrics.json` 是每次运行最后写入的完成标记，因此只有全部组合存在且复核显示 `PASS: 945 runs`，才能确认完整网格完成。`tests` 检查时间边界、只依赖历史的缩放、缺测目标排除、配额、五模型梯度和 baseline。
 
 ## 中断与重跑
 

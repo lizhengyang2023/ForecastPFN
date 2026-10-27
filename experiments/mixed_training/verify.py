@@ -9,8 +9,23 @@ import pandas as pd
 from .evaluate import metrics
 
 
-def verify(root, expected=None):
+def verify(root, expected=None, require_grid=False, grid_datasets=None):
     paths = sorted(Path(root).glob('*/*/p_*/seed_*/metrics.json'))
+    if require_grid:
+        plan=json.loads((Path(__file__).resolve().parent/'configs/default.json').read_text())
+        names=grid_datasets or list(plan['datasets'])
+        planned={
+            (dataset,model,f'p_{fraction:.3f}',f'seed_{seed}')
+            for dataset in names
+            for model in plan['models']
+            for seed in plan['seeds']
+            for fraction in plan['fractions']
+        }
+        found={tuple(part.name for part in (path.parents[3],path.parents[2],path.parents[1],path.parent)) for path in paths}
+        missing=sorted(planned-found)
+        extra=sorted(found-planned)
+        if missing or extra:
+            raise ValueError(f'Incomplete grid: missing={len(missing)} {missing[:5]}, extra={len(extra)} {extra[:5]}')
     if expected is not None:
         assert len(paths)==expected,(len(paths),expected)
     assert paths,'No completed runs'
@@ -18,6 +33,10 @@ def verify(root, expected=None):
     for path in paths:
         r=json.loads(path.read_text())
         config=json.loads((path.parent/'config.json').read_text())
+        assert config['model']==path.parents[2].name
+        assert f'p_{config["fraction"]:.3f}'==path.parents[1].name
+        assert f'seed_{config["seed"]}'==path.parent.name
+        assert r['final_step']==config['config']['steps']
         manifest=json.loads((path.parent/'split_manifest.json').read_text())
         log=pd.read_csv(path.parent/'train_log.csv')
         dataset=path.parents[3].name
@@ -53,5 +72,7 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--expected-runs',type=int)
+    parser.add_argument('--require-grid',action='store_true',help='Check every combination in configs/default.json (all seven datasets by default).')
+    parser.add_argument('--datasets',nargs='+',help='Dataset subset for --require-grid, e.g. exchange for screening.')
     args=parser.parse_args()
-    verify(args.output,args.expected_runs)
+    verify(args.output,args.expected_runs,args.require_grid,args.datasets)
