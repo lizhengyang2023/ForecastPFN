@@ -6,8 +6,117 @@ from pathlib import Path
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
+
+
+def plot_compact_mase_comparison(per_ratio, path):
+    """Color identifies dataset; marker identifies validation-selected model."""
+    datasets = sorted(per_ratio.dataset.unique())
+    models = sorted(per_ratio.model.unique())
+    markers = ['o', 's', '^', 'D', 'P', 'X', 'v', '*']
+    if len(models) > len(markers):
+        raise ValueError('Not enough distinct markers for the model legend')
+    model_markers = dict(zip(models, markers))
+    colors = dict(zip(datasets, plt.get_cmap('tab10').colors[:len(datasets)]))
+    fig, ax = plt.subplots(figsize=(11, 6))
+    for dataset, part in per_ratio.groupby('dataset', sort=True):
+        part = part.sort_values('fraction')
+        color = colors[dataset]
+        ax.plot(part.fraction * 100, part.test_mase_mean, color=color,
+                linewidth=1.3, alpha=.65, zorder=1)
+        for model, points in part.groupby('model'):
+            ax.scatter(points.fraction * 100, points.test_mase_mean,
+                       marker=model_markers[model], color=color,
+                       edgecolors='white', linewidths=.6, s=65, zorder=2)
+    ax.axhline(1, color='0.5', linestyle='--', linewidth=1, alpha=.7)
+    ax.set(xlabel='Synthetic exposure (%)', ylabel='Test MASE',
+           title='Validation-selected model at each dataset and synthetic fraction',
+           xticks=sorted(per_ratio.fraction.unique() * 100))
+    ax.tick_params(axis='x', labelrotation=45)
+    ax.grid(axis='y', alpha=.2)
+    dataset_handles = [Line2D([0], [0], color=colors[name], marker='o',
+                              label=name) for name in datasets]
+    model_handles = [Line2D([0], [0], linestyle='None', color='0.25',
+                            marker=model_markers[name], markersize=8,
+                            label=name) for name in models]
+    legend = ax.legend(handles=dataset_handles, title='Dataset',
+                       loc='upper left', bbox_to_anchor=(1.01, 1))
+    ax.add_artist(legend)
+    ax.legend(handles=model_handles, title='Selected model',
+              loc='upper left', bbox_to_anchor=(1.01, .48))
+    fig.tight_layout()
+    fig.savefig(path, dpi=170, bbox_inches='tight')
+    plt.close(fig)
+
+
+def write_compact_mase_report(report_dir, aggregate, runs):
+    """Compare exposure ratios without selecting a winner on test data."""
+    report_dir = Path(report_dir)
+    required = {'dataset', 'model', 'fraction', 'checkpoint',
+                'validation_rmse_mean', 'test_mase_mean', 'test_mase_std', 'test_mase_count'}
+    missing = required.difference(aggregate.columns)
+    if missing:
+        raise ValueError(f'aggregate.csv lacks compact-report columns: {sorted(missing)}')
+    eligible = aggregate[(aggregate.checkpoint == 'best') & aggregate.test_mase_mean.notna()].copy()
+    if eligible.empty:
+        raise ValueError('No validation-best rows with finite test MASE')
+    # The MASE denominator is shared by all runs of a dataset, so ranking by
+    # validation RMSE preserves the existing checkpoint/proportion protocol.
+    per_ratio = (eligible.sort_values(['validation_rmse_mean', 'model'])
+                 .drop_duplicates(['dataset', 'fraction'])
+                 .sort_values(['dataset', 'fraction']))
+    best = (per_ratio.sort_values(['dataset', 'validation_rmse_mean', 'fraction', 'model'])
+            .drop_duplicates('dataset').sort_values('dataset'))
+    per_ratio.to_csv(report_dir / 'compact_mase_by_ratio.csv', index=False)
+    best.to_csv(report_dir / 'compact_mase_best.csv', index=False)
+    plot_compact_mase_comparison(per_ratio, report_dir / 'compact_mase_comparison.png')
+
+    config_path = Path(__file__).parent / 'configs' / 'default.json'
+    config = json.loads(config_path.read_text(encoding='utf-8'))
+    ratios = ', '.join(f'{p:g}' for p in sorted(runs.fraction.unique()))
+    seeds = ', '.join(str(s) for s in sorted(runs.seed.unique()))
+    lines = ['# 真实/合成混合训练：MASE 精简汇总', '',
+             f'覆盖 {runs.dataset.nunique()} 个数据集、{runs.model.nunique()} 个模型、'
+             f'{len(runs) // 2} 次运行；合成占比 p = {ratios}；seed = {seeds}。',
+             f'配置参考：每组 {config["steps"]} 次更新，batch={config["batch_size"]}，'
+             f'历史窗口独立标准化（标准差下限 {config["normalization_epsilon"]:g}）；'
+             '真实序列按时间 70%/10%/20% 划分，直接预测完整未来窗口。',
+             '各数据集分别训练模型。每次运行以真实验证集原尺度 RMSE 选 best checkpoint；'
+             '以下各占比的模型、各数据集的最终占比也按跨 seed 平均验证 RMSE 选择，'
+             '测试集不参与选择。',
+             '测试 MASE = 原尺度测试 MAE / 真实训练段季节性 naive MAE；'
+             '预设季节周期依数据集而异，MASE < 1 表示优于该数据集的训练段季节性误差基准。'
+             '“±”为训练 seed 的样本标准差，不是置信区间。', '',
+             '## 各数据集的验证选择结果', '',
+             '| 数据集 | 最优 p | 模型 | 测试 MASE（均值 ± SD） | 相对 p=0 |',
+             '|---|---:|---|---:|---:|']
+    for _, row in best.iterrows():
+        baseline = per_ratio[(per_ratio.dataset == row.dataset) & (per_ratio.fraction == 0)]
+        delta = (f'{100 * (1 - row.test_mase_mean / baseline.iloc[0].test_mase_mean):+.2f}%'
+                 if len(baseline) and baseline.iloc[0].test_mase_mean > 0 else 'n/a')
+        sd = row.test_mase_std
+        value = f'{row.test_mase_mean:.4f} ± {sd:.4f}' if pd.notna(sd) else f'{row.test_mase_mean:.4f} (n=1)'
+        lines.append(f'| {row.dataset} | {row.fraction:g} | {row.model} | {value} | {delta} |')
+    lines += ['', '## 各混合比例的比较', '',
+              '每格先按真实验证 RMSE 选该数据集、该占比的模型，再列出其测试 MASE。'
+              '同一行的各占比共用相同目标和 MASE 分母。图中颜色表示数据集，点形表示该点的来源模型。',
+              '', '![各数据集与混合比例的测试 MASE](compact_mase_comparison.png)', '',
+              '| 数据集 | ' + ' | '.join(f'p={p:g}' for p in sorted(runs.fraction.unique())) + ' |',
+              '|---|' + '|'.join('---:' for _ in sorted(runs.fraction.unique())) + '|']
+    for dataset, part in per_ratio.groupby('dataset', sort=True):
+        cells = []
+        for p in sorted(runs.fraction.unique()):
+            match = part[part.fraction == p]
+            cells.append(f'{match.iloc[0].test_mase_mean:.4f}' if len(match) else '—')
+        lines.append(f'| {dataset} | ' + ' | '.join(cells) + ' |')
+    lines += ['', '“相对 p=0”按每个占比各自的验证选择模型计算，正值表示测试 MASE 降低。'
+              '不同数据集的原尺度 MAE/MSE 不直接比较；跨数据集仍应结合各任务基线和逐数据集结果解读。',
+              '完整逐 seed 结果见 `runs.csv`，各比例均值与标准差见 `aggregate.csv`。', '']
+    path = report_dir / 'compact_mase.md'
+    path.write_text('\n'.join(lines), encoding='utf-8')
+    return path
 
 
 def summarize(root):
@@ -51,6 +160,7 @@ def summarize(root):
         selections.append(selected)
     selected=pd.DataFrame(selections)
     selected.to_csv(report_dir/'validation_selected.csv',index=False)
+    write_compact_mase_report(report_dir, aggregate, runs)
     lines=['# Mixed real/synthetic training report','',
         f'Completed runs: {len(runs)//2}. Both final and validation-best checkpoints are reported.',
         'Proportions are selected by mean REAL validation RMSE across seeds, not by test ranking.',
@@ -150,5 +260,12 @@ def summarize(root):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--report-only',action='store_true',
+                        help='Build compact MASE summary from existing report CSVs only')
     args=parser.parse_args()
-    summarize(args.output)
+    if args.report_only:
+        report_dir=args.output/'report'
+        print(write_compact_mase_report(report_dir,
+              pd.read_csv(report_dir/'aggregate.csv'),pd.read_csv(report_dir/'runs.csv')))
+    else:
+        summarize(args.output)

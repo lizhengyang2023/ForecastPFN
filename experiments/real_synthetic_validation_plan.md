@@ -2,7 +2,7 @@
 
 更新日期：2026-10-26  
 状态：实验设计，尚未执行本计划中的混合训练。  
-实现与运行说明见 [`mixed_training/README.md`](mixed_training/README.md)。该实现增加 100% 合成组，使用固定合成候选池控制曝光比例；冒烟与 Exchange 初筛的实际结果以输出目录报告为准。  
+实现与运行说明见 [`sample_mixed/README.md`](sample_mixed/README.md)。该实现增加 100% 合成组，使用固定合成候选池控制曝光比例；冒烟与 Exchange 初筛的实际结果以输出目录报告为准。
 本文件替代上一版 `real-synthetic-design.canvas.tsx` 中的比例扫描与模型范围；此前的纯合成 ForecastPFN 小规模实验结果不变。
 
 ## 1. 目标与核心修改
@@ -179,7 +179,7 @@ T(p) = ceil(2000 / (1-p))
 ```text
 experiments/
   real_synthetic_validation_plan.md       # 本计划
-  mixed_training/                         # 以下为拟新增，当前尚未实现
+  sample_mixed/                         # 以下为拟新增，当前尚未实现
     configs/
     datasets.py
     sampler.py
@@ -187,7 +187,7 @@ experiments/
     train.py
     evaluate.py
     summarize.py
-  results/mixed_training/
+  results/sample_mixed/
     <dataset>/<model>/p_<fraction>/seed_<seed>/
       config.json
       split_manifest.json

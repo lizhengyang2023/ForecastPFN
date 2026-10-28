@@ -4,6 +4,8 @@
 
 本地 Exchange Rate 单数据集 135 次正式初筛已完成；指标、基线与成本结论见 [SCREENING_RESULTS.md](SCREENING_RESULTS.md)。
 
+公共的时间切分、模拟数据生成、采样、模型、评估和随机种子设置位于 `experiments/utils/`；本目录保留样本级混合专用的训练、配置、核验和汇总。重构后的模块入口为 `experiments.sample_mixed`。
+
 ## 环境与运行位置
 
 所有命令在 ForecastPFN 仓库根目录执行，推荐 Python 3.11。当前本地使用 conda base 的 `D:\software\Anacoda\python.exe`，无需激活环境；GPU 可用时自动使用 CUDA。
@@ -11,8 +13,15 @@
 此套实验只需要 PyTorch、NumPy、pandas、SciPy、Matplotlib，**不需要安装根目录的旧版全量 requirements 或 TensorFlow**。为原生成器拆出了轻量 `prior_constants.py`，仅分离 TensorFlow 序列化依赖，没有重写趋势、季节性、噪声或随机参数采样公式。
 
 ```bash
-python -m pip install -r experiments/mixed_training/requirements.txt
-python -m experiments.mixed_training.tests
+python -m pip install -r experiments/sample_mixed/requirements.txt
+python -m experiments.sample_mixed.tests
+```
+
+重构复核已在本地完成：15 次 Exchange 冒烟均通过 `verify`，与旧目录保存的同配置冒烟结果比较时，checkpoint 指标、曝光统计及 90 个预测/采样数组完全一致。复核命令（旧结果目录仅在本机存在）：
+
+```powershell
+python -m experiments.sample_mixed.verify --output experiments/results/refactor_sample_smoke --expected-runs 15
+python -m experiments.compare_refactor --old experiments/results/archived/mixed_smoke_checked --new experiments/results/refactor_sample_smoke --expected-runs 15
 ```
 
 注意：远程环境快照中的 pandas 3.1.0 超出本目录 `requirements.txt` 声明的 `<3` 范围。本次已将合成小时频率改为新版 pandas 兼容的 `h` 别名；若运行中再遇到其他 pandas 3.x 兼容问题，请使用依赖文件声明的 pandas 2.x 环境。
@@ -25,21 +34,21 @@ python -m experiments.mixed_training.tests
 
 ```bash
 # 可选：仅检查真实数据、时间边界并缓存原生成器合成数据，不训练。
-python -m experiments.mixed_training.run --stage prepare --data-root /path/to/long_term_forecast --output experiments/results/mixed_full
+python -m experiments.sample_mixed.run --stage prepare --data-root /path/to/long_term_forecast --output experiments/results/mixed_full
 
 # 完整 945-run 网格；默认 2,000 updates/run，batch=64。
-python -m experiments.mixed_training.run --stage full --data-root /path/to/long_term_forecast --output experiments/results/mixed_full
+python -m experiments.sample_mixed.run --stage full --data-root /path/to/long_term_forecast --output experiments/results/mixed_full
 
 # 独立核验全部预测指标、来源曝光和 checkpoint 选择，再生成报告。
-python -m experiments.mixed_training.verify --output experiments/results/mixed_full --expected-runs 945 --require-grid
-python -m experiments.mixed_training.summarize --output experiments/results/mixed_full
+python -m experiments.sample_mixed.verify --output experiments/results/mixed_full --expected-runs 945 --require-grid
+python -m experiments.sample_mixed.summarize --output experiments/results/mixed_full
 ```
 
 正式运行之前可在**远程硬件上**先测冒烟成本，再估计完整网格。冒烟计时不能准确迁移到另一种 CPU/GPU。
 
 ```bash
-python -m experiments.mixed_training.run --stage smoke --data-root /path/to/long_term_forecast --output experiments/results/remote_smoke
-python -m experiments.mixed_training.run --stage estimate --data-root /path/to/long_term_forecast --profile-output experiments/results/remote_smoke --output experiments/results/remote_cost
+python -m experiments.sample_mixed.run --stage smoke --data-root /path/to/long_term_forecast --output experiments/results/remote_smoke
+python -m experiments.sample_mixed.run --stage estimate --data-root /path/to/long_term_forecast --profile-output experiments/results/remote_smoke --output experiments/results/remote_cost
 ```
 
 `cost_estimate.json` 将训练、周期验证和最终评估分开外推，并按上下文长度/验证窗口数做粗略校正。规划区间不是统计置信区间；不含首次合成数据生成、绘图和排队时间。
@@ -53,13 +62,13 @@ $python = 'D:\software\Anacoda\python.exe'
 $dataRoot = 'D:\Code\TimeSeries\datasets\tslib-data\long_term_forecast'
 
 # 5 模型 × 1 seed × 3 比例(0%、50%、100%)，各 50 steps，共 15 runs。
-& $python -m experiments.mixed_training.run --stage smoke --data-root $dataRoot --output experiments/results/mixed_smoke_checked
-& $python -m experiments.mixed_training.verify --output experiments/results/mixed_smoke_checked --expected-runs 15
+& $python -m experiments.sample_mixed.run --stage smoke --data-root $dataRoot --output experiments/results/mixed_smoke_checked
+& $python -m experiments.sample_mixed.verify --output experiments/results/mixed_smoke_checked --expected-runs 15
 
 # Exchange Rate：5 模型 × 3 seeds × 9 比例，共 135 runs。
-& $python -m experiments.mixed_training.run --stage screen --data-root $dataRoot --output experiments/results/mixed_exchange
-& $python -m experiments.mixed_training.verify --output experiments/results/mixed_exchange --expected-runs 135 --require-grid --datasets exchange
-& $python -m experiments.mixed_training.summarize --output experiments/results/mixed_exchange
+& $python -m experiments.sample_mixed.run --stage screen --data-root $dataRoot --output experiments/results/mixed_exchange
+& $python -m experiments.sample_mixed.verify --output experiments/results/mixed_exchange --expected-runs 135 --require-grid --datasets exchange
+& $python -m experiments.sample_mixed.summarize --output experiments/results/mixed_exchange
 ```
 
 覆盖参数示例：`--datasets etth1`、`--models mlp gru`、`--seeds 42`、`--fractions 0 0.125 0.5 1`、`--steps 500`。正式默认值集中在 `configs/default.json`。改变步数、数据生成设置或训练代码时使用新输出目录，防止混入不同协议的结果。
@@ -109,8 +118,18 @@ Weather 的本地文件有相同时间/目标值的重复记录与内部缺测�
 - `runs.csv`：所有模型、比例、seed、checkpoint 的逐次结果。
 - `aggregate.csv`：各比例跨 seed 的均值、标准差及实际完成数。
 - `validation_selected.csv`：每模型/每checkpoint **按跨 seed 验证 RMSE** 选择一个比例后，报告其测试误差及相对 real-only 的改善。
+- `compact_mase.md`：精简的跨数据集、跨合成比例 MASE 汇总。每个数据集/比例先按真实验证 RMSE 选择模型，最终比例也按验证 RMSE 选择；测试 MASE 只用于报告，不用于选优。另输出 `compact_mase_by_ratio.csv` 和 `compact_mase_best.csv` 便于复用。
+- `compact_mase_comparison.png`：横轴为合成数据曝光占比、纵轴为测试 MASE；颜色区分数据集，点形表示该占比下由验证 RMSE 选出的模型。图也嵌入 `compact_mase.md`。
 - 每个数据集的比例曲线（MAE/RMSE × best/final）、模型对比图、训练曲线、固定首个测试起点的预测示例，以及原生成器采样图。
 - `report.md`：便于阅读的图文报告。标准差不是置信区间；不直接平均不同量纲数据集的原始 RMSE。
+
+如果只下载了远程的 `report/` 目录（其中包含 `runs.csv` 和 `aggregate.csv`），可在仓库根目录直接补生成精简汇总，无需下载权重或预测数组：
+
+```bash
+python -m experiments.sample_mixed.summarize --output experiments/results/mixed_full --report-only
+```
+
+MASE 的分母是各数据集真实训练段、按预设季节周期计算的 seasonal naive MAE。该指标无量纲，适合与各任务基线一同对比；精简表中的“最优”均由验证集决定，不按测试 MASE 挑选。
 
 `verify` 独立从保存的预测重算误差、检查相同比例组的初始化配对、曝光总量、完整测试窗口和验证选择规则。`--require-grid` 逐个核对默认配置中的数据集、模型、seed、比例组合；缺失或多余组合均返回非零退出码。`metrics.json` 是每次运行最后写入的完成标记，因此只有全部组合存在且复核显示 `PASS: 945 runs`，才能确认完整网格完成。`tests` 检查时间边界、只依赖历史的缩放、缺测目标排除、配额、五模型梯度和 baseline。
 

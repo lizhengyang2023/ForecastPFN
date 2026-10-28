@@ -13,15 +13,13 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .datasets import load_real, sha256, write_json
+from experiments.utils.datasets import load_real, sha256, write_json
+from experiments.utils.constants import ALL_DATASETS
 from .engine import run_one
-from .evaluate import evaluate_baselines
-from .synthetic import load_synthetic
+from experiments.utils.evaluate import evaluate_baselines
+from experiments.utils.synthetic import load_synthetic
 
 PACKAGE = Path(__file__).resolve().parent
-ALL_DATASETS = ['exchange','etth1','etth2','electricity','traffic','weather','illness']
-
-
 def estimate(config, names, root, profile, output):
     """Extrapolate measured smoke training and evaluation separately; not a promise."""
     measured = []
@@ -89,7 +87,7 @@ def main():
             config[key] = getattr(args,key)
     if config['steps'] < 1 or config['eval_every'] < 1:
         raise ValueError('steps and eval_every must be positive')
-    from .sampler import quota
+    from experiments.utils.sampler import quota
     for fraction in config['fractions']:
         quota(config['batch_size'],fraction)
     if args.stage == 'estimate':
@@ -99,7 +97,9 @@ def main():
         return
     torch.set_num_threads(config['threads'])
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') if args.device=='auto' else torch.device(args.device)
-    identity = {p.name:sha256(p) for p in sorted(PACKAGE.glob('*.py')) if p.name not in ['summarize.py','verify.py','tests.py']}
+    identity = {str(p.relative_to(PACKAGE.parent)):sha256(p)
+                for p in sorted([*PACKAGE.glob('*.py'), *(PACKAGE.parent/'utils').glob('*.py')])
+                if p.name not in ['summarize.py','verify.py','tests.py']}
     metadata = dict(config=config, datasets=names, python=platform.python_version(), torch=torch.__version__,
         numpy=np.__version__, device=str(device), device_name=torch.cuda.get_device_name(device) if device.type=='cuda' else platform.processor(),
         code_hashes=identity, description='Independent model per real dataset; source fractions are per-batch exposures; no test tuning')

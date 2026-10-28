@@ -7,11 +7,11 @@ import numpy as np
 import pandas as pd
 import torch
 
-from .datasets import load_real, normalize
-from .evaluate import metrics, baseline_predictions
-from .models import build_model
-from .sampler import CyclingSampler, quota
-from .synthetic import load_synthetic
+from experiments.utils.datasets import load_real, normalize
+from experiments.utils.evaluate import metrics, baseline_predictions
+from experiments.utils.models import build_model
+from experiments.utils.sampler import CyclingSampler, quota
+from experiments.utils.synthetic import load_synthetic
 
 
 class Invariants(unittest.TestCase):
@@ -81,7 +81,9 @@ class Invariants(unittest.TestCase):
                 self.assertFalse(np.isin(targets,[166,167,168]).any())
 
     def test_hourly_synthetic_generation_with_compatible_alias(self):
-        with tempfile.TemporaryDirectory() as directory:
+        temporary_root = Path(__file__).resolve().parents[1]/'results'
+        temporary_root.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=temporary_root) as directory:
             spec=dict(frequency='H',context=4,horizon=2)
             config=dict(synthetic_series=1,windows_per_series=1,data_seed=42,
                         normalization_epsilon=1e-4)

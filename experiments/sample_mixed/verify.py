@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .evaluate import metrics
+from experiments.utils.evaluate import metrics
 
 
 def verify(root, expected=None, require_grid=False, grid_datasets=None):
