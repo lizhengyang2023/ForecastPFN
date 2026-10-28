@@ -42,11 +42,12 @@ class BatchSampler:
             self.candidate_total += count
             if level != 'random':
                 a, p = self.index.anchor, self.index.partner
-                period_distance = abs(np.log(a['period'][anchor_id] / p['period'][partner]))
-                phase_distance = abs(np.angle(np.exp(1j *
-                    (a['phase'][anchor_id] - p['phase'][partner]))))
-                future_drift = 2 * np.pi * self.index.horizon * abs(
-                    1 / a['period'][anchor_id] - 1 / p['period'][partner])
+                period_distance = float(abs(np.log(
+                    a['period'][anchor_id] / p['period'][partner])))
+                phase_distance = float(abs(np.angle(np.exp(1j *
+                    (a['phase'][anchor_id] - p['phase'][partner])))))
+                future_drift = float(2 * np.pi * self.index.horizon * abs(
+                    1 / a['period'][anchor_id] - 1 / p['period'][partner]))
                 self.period_distance_total += period_distance
                 self.phase_distance_total += phase_distance
                 self.future_drift_total += future_drift

@@ -1,4 +1,5 @@
 """Focused matching, leakage, stream, and training replay checks."""
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -59,6 +60,9 @@ class PairedTests(unittest.TestCase):
         for _ in range(4):
             for left, right in zip(replay.take(), original.take()):
                 np.testing.assert_array_equal(left, right)
+        diagnostics = replay.diagnostics()
+        self.assertGreater(diagnostics['match_counts']['period_phase'], 0)
+        json.dumps(diagnostics, allow_nan=False)
 
     def test_complete_training_replay(self):
         rng = np.random.default_rng(7)

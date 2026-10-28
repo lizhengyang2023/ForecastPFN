@@ -37,6 +37,12 @@ $dataRoot = 'D:\Code\TimeSeries\datasets\tslib-data\long_term_forecast'
   --random-output experiments/results/mixup_full
 ```
 
+```bash
+python -m experiments.mixup_paired.launch --stage screen --datasets etth1 \
+  --data-root $dataRoot --output experiments/results/mixup_paired_etth1 \
+  --random-output experiments/results/mixup_full
+```
+
 四张卡必须在同一机器上由 CUDA 可见。启动脚本先顺序准备共享模拟池，随后给四个子进程分配不同 GPU 和不同输出目录；任一子进程失败时保留日志，重新执行相同命令可跳过签名一致的已完成运行。`--random-output` 可以指向旧随机实验的原始结果目录，也可以指向只保留 `report/runs.csv` 的归档目录；后者的旧数据/生成池签名无法从 CSV 独立核验，解释对照时应查看原始实验记录。
 
 ## 4. 七数据集全量运行
@@ -46,6 +52,12 @@ $dataRoot = 'D:\Code\TimeSeries\datasets\tslib-data\long_term_forecast'
 ```powershell
 & $python -m experiments.mixup_paired.launch --stage full `
   --data-root $dataRoot --output experiments/results/mixup_paired_full `
+  --random-output experiments/results/mixup_full
+```
+
+```bash
+python -m experiments.mixup_paired.launch --stage full \
+  --data-root $dataRoot --output experiments/results/mixup_paired_full \
   --random-output experiments/results/mixup_full
 ```
 
