@@ -37,6 +37,23 @@ $dataRoot = 'D:\Code\TimeSeries\datasets\tslib-data\long_term_forecast'
 & $python -m experiments.mixup.verify --output experiments/results/mixup_smoke --expected-runs 6
 ```
 
+## 汇总实验结果
+
+训练完成并运行 `verify` 后，使用独立的 Mixup 汇总入口；它读取 `<dataset>/<model>/<mode>/lambda_<weight>/seed_<seed>/metrics.json`，不适用 `sample_mixed.summarize` 的合成占比目录结构。冒烟和正式实验都可以使用同一接口：
+
+```powershell
+& $python -m experiments.mixup.summarize --output experiments/results/mixup_smoke
+& $python -m experiments.mixup.summarize --output experiments/results/mixup_exchange
+```
+
+输出写入对应目录的 `report/`：`report.md` 为图文总结，`runs.csv` 为逐 seed 的 best/final 指标，`aggregate.csv` 为跨 seed 均值、标准差及数量，`paired.csv` 给出同模型、同 seed 相对 Real-only 和同权重 Real–Real 的差值，`validation_selected.csv` 给出按真实验证 RMSE 选出的各模式权重，另有各模型的测试 RMSE 图。只用与 Real-only 完全相同的 seed 集合参与配置选择；缺组时仍汇总已有运行，但不会将不完整组当作可比较的优胜配置。测试集不用于选权重。
+
+汇总逻辑的确定性选择测试：
+
+```powershell
+& $python -m experiments.mixup.test_summarize
+```
+
 重构复核已在本地完成：6 次冒烟均通过 `verify`，与重构前保存的同配置冒烟结果比较时，checkpoint 指标、曝光统计及 42 个预测/采样数组完全一致。可按以下命令重复核对（旧结果目录仅在本机存在）：
 
 ```powershell
