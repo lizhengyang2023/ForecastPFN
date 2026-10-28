@@ -202,6 +202,145 @@ def report_text(root, runs, aggregate, selected, paired):
     return '\n'.join(lines)
 
 
+def write_compact_mase_report(report_dir, aggregate, runs):
+    """Select models and mix weights on validation RMSE; display test MASE."""
+    required = {'dataset', 'model', 'mode', 'weight', 'checkpoint',
+                'validation_rmse_mean', 'test_mase_mean', 'test_mase_std'}
+    missing = required - set(aggregate.columns)
+    if missing:
+        raise ValueError(f'aggregate.csv lacks columns: {sorted(missing)}')
+    required_runs = {'dataset', 'model', 'mode', 'weight', 'seed', 'checkpoint'}
+    missing_runs = required_runs - set(runs.columns)
+    if missing_runs:
+        raise ValueError(f'runs.csv lacks columns: {sorted(missing_runs)}')
+    best_runs = runs[runs.checkpoint == 'best']
+    best_aggregate = aggregate[(aggregate.checkpoint == 'best') &
+        aggregate.test_mase_mean.notna() & aggregate.validation_rmse_mean.notna()].copy()
+    if best_aggregate.empty:
+        raise ValueError('No validation-best runs with finite test MASE')
+    # Compare only groups with the same seed set as every real-only model of
+    # that dataset. Partial shards remain in aggregate.csv, but cannot win here.
+    eligible = []
+    for dataset, data in best_runs.groupby('dataset'):
+        base = data[data['mode'] == 'real']
+        base_sets = [set(group.seed) for _, group in base.groupby('model')]
+        if not base_sets or any(seeds != base_sets[0] for seeds in base_sets[1:]):
+            continue
+        expected = base_sets[0]
+        if not expected:
+            continue
+        for (model, mode, weight), group in data.groupby(['model', 'mode', 'weight']):
+            if model not in set(base.model) or set(group.seed) != expected:
+                continue
+            match = best_aggregate[(best_aggregate.dataset == dataset) &
+                (best_aggregate.model == model) & (best_aggregate['mode'] == mode) &
+                (best_aggregate.weight == weight)]
+            if len(match) == 1:
+                eligible.append(match.iloc[0].to_dict())
+    if not eligible:
+        raise ValueError('No complete, paired seed groups with finite test MASE')
+    eligible = pd.DataFrame(eligible)
+    base = eligible[eligible['mode'] == 'real'].copy()
+    base = (base.sort_values(['dataset', 'validation_rmse_mean', 'model'])
+        .drop_duplicates('dataset'))
+    # A separate model is selected at each weight and for each Mixup source.
+    per_ratio = (eligible[eligible['mode'] != 'real']
+        .sort_values(['dataset', 'mode', 'weight', 'validation_rmse_mean', 'model'])
+        .drop_duplicates(['dataset', 'mode', 'weight']).copy())
+    per_ratio['partner_weight'] = 1 - per_ratio.weight
+    baseline = base.assign(mode='real', weight=1.0)
+    by_ratio = pd.concat([baseline, per_ratio], ignore_index=True)
+    by_ratio['partner_weight'] = 1 - by_ratio.weight
+    by_ratio = by_ratio.sort_values(['dataset', 'mode', 'partner_weight'])
+    chosen = (per_ratio.sort_values(['dataset', 'mode', 'validation_rmse_mean', 'weight', 'model'])
+        .drop_duplicates(['dataset', 'mode']))
+    chosen = pd.concat([baseline, chosen], ignore_index=True).sort_values(['dataset', 'mode'])
+    baseline_mase = base.set_index('dataset').test_mase_mean
+    chosen['real_only_test_mase_mean'] = chosen.dataset.map(baseline_mase)
+    chosen['mase_improvement_vs_real_percent'] = 100 * (
+        1 - chosen.test_mase_mean / chosen.real_only_test_mase_mean)
+    report_dir = Path(report_dir)
+    report_dir.mkdir(parents=True, exist_ok=True)
+    by_ratio.to_csv(report_dir/'compact_mase_by_ratio.csv', index=False)
+    chosen.to_csv(report_dir/'compact_mase_best.csv', index=False)
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharey=True)
+    modes = [('real_real', 'Real–Real'), ('real_synthetic', 'Real–Synthetic')]
+    datasets = sorted(by_ratio.dataset.unique())
+    colors = dict(zip(datasets, plt.get_cmap('tab10').colors[:len(datasets)]))
+    models = sorted(by_ratio.model.unique())
+    markers = dict(zip(models, ['o', 's', '^', 'D', 'P', 'X', 'v', '*']))
+    if len(models) > len(markers):
+        raise ValueError('Too many models for distinct plot markers')
+    for ax, (mode, label) in zip(axes, modes):
+        for dataset in datasets:
+            subset = by_ratio[(by_ratio.dataset == dataset) &
+                              ((by_ratio['mode'] == mode) | (by_ratio['mode'] == 'real'))]
+            subset = subset.sort_values('partner_weight')
+            if subset.empty:
+                continue
+            ax.plot(subset.partner_weight * 100, subset.test_mase_mean,
+                    color=colors[dataset], alpha=.75, label=dataset)
+            for _, row in subset.iterrows():
+                ax.scatter(row.partner_weight * 100, row.test_mase_mean,
+                    color=colors[dataset], marker=markers[row.model], s=55,
+                    edgecolors='white', linewidth=.6, zorder=3)
+        ax.axhline(1, color='0.5', linestyle='--', linewidth=1)
+        ax.set(title=label, xlabel='Partner weight (%)',
+               xticks=sorted(by_ratio.partner_weight.unique()*100))
+        ax.grid(axis='y', alpha=.2)
+        ax.tick_params(axis='x', labelrotation=45)
+    axes[0].set_ylabel('Test MASE')
+    from matplotlib.lines import Line2D
+    dataset_legend = [Line2D([0], [0], color=colors[d], marker='o', label=d)
+                      for d in datasets]
+    model_legend = [Line2D([0], [0], color='0.3', linestyle='None',
+                     marker=markers[m], label=m) for m in models]
+    axes[1].legend(handles=dataset_legend + model_legend, loc='upper left',
+                   bbox_to_anchor=(1.01, 1), title='Dataset / selected model')
+    fig.tight_layout()
+    fig.savefig(report_dir/'compact_mase_comparison.png', dpi=170, bbox_inches='tight')
+    plt.close(fig)
+
+    def fmt(row):
+        sd = row.test_mase_std
+        return f'{row.test_mase_mean:.4f} ± {sd:.4f}' if pd.notna(sd) else f'{row.test_mase_mean:.4f} (n=1)'
+
+    lines = ['# Mixup：测试 MASE 与各混合比例', '',
+        '横轴为伙伴窗口权重 `1−λ`：0% 是 Real-only；另外两组分别为真实—真实、真实—模拟 Mixup。'
+        '图中颜色代表数据集，点形代表该比例由**真实验证 RMSE**选出的模型。',
+        '每个数据集先要求各候选组与 Real-only 具有相同 seed 集合，再按跨 seed 平均验证 RMSE 选模型和权重。'
+        '测试 MASE 只用于展示，不参与选择。缺失或 MASE 分母无效的组不参与图表。',
+        'MASE = 原尺度测试 MAE / 真实训练段季节性 naive MAE；低于 1 表示优于该训练段的季节性误差基准。'
+        '误差中的“±”为训练 seed 标准差，不是置信区间。', '',
+        '![各混合比例的测试 MASE](compact_mase_comparison.png)', '',
+        '## 各数据集的验证选择结果', '',
+        '| 数据集 | 方法 | 伙伴权重 | 模型 | 测试 MASE | 相对 Real-only |',
+        '|---|---|---:|---|---:|---:|']
+    for _, row in chosen.iterrows():
+        lines.append(f'| {row.dataset} | {row["mode"]} | {1-row.weight:.3f} | '
+            f'{row.model} | {fmt(row)} | {row.mase_improvement_vs_real_percent:+.2f}% |')
+    for mode, label in modes:
+        lines += ['', f'## {label}：各混合比例', '',
+            '每个数据集与伙伴权重单独按验证 RMSE 选模型；空缺表示未完成可配对的实验。', '']
+        weights = sorted(per_ratio[per_ratio['mode'] == mode].partner_weight.unique())
+        lines += ['| 数据集 | Real-only | ' + ' | '.join(f'{w*100:g}%' for w in weights) + ' |',
+                  '|---|---:|' + '|'.join('---:' for _ in weights) + '|']
+        for dataset in datasets:
+            baseline_row = base[base.dataset == dataset]
+            values = [fmt(baseline_row.iloc[0]) if len(baseline_row) else '—']
+            for weight in weights:
+                match = by_ratio[(by_ratio.dataset == dataset) & (by_ratio['mode'] == mode) &
+                                 np.isclose(by_ratio.partner_weight, weight)]
+                values.append(fmt(match.iloc[0]) if len(match) else '—')
+            lines.append(f'| {dataset} | ' + ' | '.join(values) + ' |')
+    lines += ['', '本表不是跨数据集原始 RMSE 的平均。完整逐次结果见 `runs.csv`，'
+              '各组合均值与标准差见 `aggregate.csv`；筛选后的两份 CSV 可用于后续分析。', '']
+    output = report_dir/'compact_mase.md'
+    output.write_text('\n'.join(lines), encoding='utf-8')
+    return output
+
+
 def summarize(output):
     root = Path(output)
     runs = read_runs(root)
@@ -217,6 +356,7 @@ def summarize(output):
     plot_results(root, aggregate, report_dir)
     report = report_dir/'report.md'
     report.write_text(report_text(root, runs, aggregate, selected, paired), encoding='utf-8')
+    write_compact_mase_report(report_dir, aggregate, runs)
     print(report)
     return report
 
@@ -225,5 +365,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True,
                         help='Mixup experiment output containing dataset/model/mode runs')
+    parser.add_argument('--report-only', action='store_true',
+                        help='Rebuild compact MASE report from report/runs.csv and aggregate.csv')
     args = parser.parse_args()
-    summarize(args.output)
+    if args.report_only:
+        report_dir = args.output/'report'
+        print(write_compact_mase_report(report_dir,
+            pd.read_csv(report_dir/'aggregate.csv'), pd.read_csv(report_dir/'runs.csv')))
+    else:
+        summarize(args.output)

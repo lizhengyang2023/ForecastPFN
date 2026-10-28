@@ -48,6 +48,14 @@ $dataRoot = 'D:\Code\TimeSeries\datasets\tslib-data\long_term_forecast'
 
 输出写入对应目录的 `report/`：`report.md` 为图文总结，`runs.csv` 为逐 seed 的 best/final 指标，`aggregate.csv` 为跨 seed 均值、标准差及数量，`paired.csv` 给出同模型、同 seed 相对 Real-only 和同权重 Real–Real 的差值，`validation_selected.csv` 给出按真实验证 RMSE 选出的各模式权重，另有各模型的测试 RMSE 图。只用与 Real-only 完全相同的 seed 集合参与配置选择；缺组时仍汇总已有运行，但不会将不完整组当作可比较的优胜配置。测试集不用于选权重。
 
+`summarize` 也会生成类似样本级混合实验的精简 MASE 视图：`compact_mase.md`、`compact_mase_comparison.png`、`compact_mase_by_ratio.csv`、`compact_mase_best.csv`。两幅面板分别显示 Real–Real 和 Real–Synthetic，横轴是伙伴窗口权重 `1−λ`（0% 为 Real-only），纵轴为真实测试集 MASE。每个数据集、方法和权重先按跨 seed 的**真实验证 RMSE**选模型；每个方法的最终权重也按该验证指标选择，测试 MASE 只用于报告。
+
+如果远程运行后只保留了 `report/runs.csv` 和 `report/aggregate.csv`，可以直接重建精简图表，无需下载模型权重或预测数组：
+
+```powershell
+& $python -m experiments.mixup.summarize --output experiments/results/mixup_exchange --report-only
+```
+
 汇总逻辑的确定性选择测试：
 
 ```powershell
