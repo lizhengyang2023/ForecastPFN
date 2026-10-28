@@ -1,6 +1,6 @@
 # 真实—模拟 Mixup 实验
 
-本目录实现 [`../real_synthetic_mixup_plan.md`](../real_synthetic_mixup_plan.md) 的第一版：单变量真实窗口分别与同任务真实窗口或 ForecastPFN 模拟窗口逐点线性组合。数据切分、模拟池、五个小模型和原尺度评估复用 `experiments/utils/`；本目录保留 Mixup 专用采样、训练、核验与配置。运行命令均在 **ForecastPFN 仓库根目录**执行。
+本目录实现 [`real_synthetic_mixup.md`](real_synthetic_mixup.md) 的第一版：单变量真实窗口分别与同任务真实窗口或 ForecastPFN 模拟窗口逐点线性组合。数据切分、模拟池、五个小模型和原尺度评估复用 `experiments/utils/`；本目录保留 Mixup 专用采样、训练、核验与配置。运行命令均在 **ForecastPFN 仓库根目录**执行。
 
 ## 环境与数据
 
@@ -74,16 +74,30 @@ $dataRoot = 'D:\Code\TimeSeries\datasets\tslib-data\long_term_forecast'
 五模型、三个 seed、`λ={0.9,0.75,0.5}`；每模型/seed 的 Real-only 只训练一次，加两种 Mixup 各三个权重，共 **105 runs**。每组 2,000 updates、batch=64、`p_aug=0.5`。使用新的输出目录，勿与冒烟结果混放。完整运行结束再统一查看测试结果。
 
 ```powershell
-& $python -m experiments.mixup.run --stage screen --data-root $dataRoot --output experiments/results/mixup_exchange
+& $python -m experiments.mixup.run --stage screen --data-root $DATA_Root --output experiments/results/mixup_exchange
 & $python -m experiments.mixup.verify --output experiments/results/mixup_exchange --expected-runs 105
+& $python -m experiments.mixup.summarize --output experiments/results/mixup_exchange
 ```
 
-七数据集完整网格共 735 runs；可用 `--datasets etth1` 等参数分批运行，完整默认命令如下：
+## 5. 七数据集全量评估与结果汇总
+
+默认覆盖 Exchange、ETTh1、ETTh2、Electricity、Traffic、Weather、Illness；五模型、三个 seed、Real-only 和两种 Mixup 的三个权重，共 **735 runs**。以下命令依次完成训练、从保存的预测和曝光记录核验全部运行、生成汇总报告。`--stage full` 是全量任务入口；`summarize` 读取该输出目录中的全部已完成运行。
 
 ```powershell
-& $python -m experiments.mixup.run --stage full --data-root $dataRoot --output experiments/results/mixup_full
+& $python -m experiments.mixup.run --stage full --data-root $DATA_Root --output experiments/results/mixup_full
 & $python -m experiments.mixup.verify --output experiments/results/mixup_full --expected-runs 735
+& $python -m experiments.mixup.summarize --output experiments/results/mixup_full
 ```
+
+全量报告位于 `experiments/results/mixup_full/report/`：先看 `report.md`，各混合比例的测试 MASE 对照见 `compact_mase.md` 和 `compact_mase_comparison.png`；逐次与汇总数据分别见 `runs.csv`、`aggregate.csv`。模型和权重依据真实验证 RMSE 选择，测试指标只用于报告。
+
+可按数据集分批运行，并在七个数据集全部完成后执行上面的 735-run 核验与汇总。例如先运行 ETTh1：
+
+```powershell
+& $python -m experiments.mixup.run --stage full --datasets etth1 --data-root $dataRoot --output experiments/results/mixup_full
+```
+
+重复使用相同输出目录时，签名一致的已完成运行会跳过；每个数据集的完整网格是 105 runs。需要从已有的 `report/runs.csv`、`report/aggregate.csv` 重新生成精简 MASE 图表时，使用前述 `--report-only` 命令并将 `--output` 改为 `experiments/results/mixup_full`。
 
 可选覆盖：`--models linear gru`、`--seeds 42`、`--weights 0.75`、`--modes real real_synthetic`、`--steps 500`、`--datasets exchange etth1`。改变步数、生成池大小、代码或配置时使用**新输出目录**；运行签名会拒绝复用不一致的已完成任务。
 
