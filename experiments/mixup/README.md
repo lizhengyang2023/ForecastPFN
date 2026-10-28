@@ -1,110 +1,38 @@
-# 真实—模拟 Mixup 实验
+# 统一的受控 Mixup 实验
 
-本目录实现 [`real_synthetic_mixup.md`](real_synthetic_mixup.md) 的第一版：单变量真实窗口分别与同任务真实窗口或 ForecastPFN 模拟窗口逐点线性组合。数据切分、模拟池、五个小模型和原尺度评估复用 `experiments/utils/`；本目录保留 Mixup 专用采样、训练、核验与配置。运行命令均在 **ForecastPFN 仓库根目录**执行。
+本目录统一原 `mixup` 与 `mixup_paired` 的运行入口。**新协议**包含五种任务：`real`、`real_real_phase_match`、`real_real_phase_mismatch`、`real_synthetic_phase_match`、`real_synthetic_phase_mismatch`。旧随机配对及带回退的 `period_only` / `period_phase` 结果保留在原输出目录，只作历史参考；新协议须使用新输出目录，不能混合汇总。
 
-## 环境与数据
+## 对照定义
 
-推荐 Python 3.11，安装 `experiments/sample_mixed/requirements.txt` 中的依赖；本地示例使用已有 Conda Python。`--data-root` 指向包含 `exchange_rate/`、`ETT-small/` 等目录的 `long_term_forecast`。默认自动选择 CUDA，亦可用 `--device cpu`。
+所有任务使用同一真实训练锚点池：锚点历史的周期估计可靠，而且在 Real–Real 和 Real–Synthetic 两个来源中均能找到相位匹配与相位不匹配的伙伴。候选特征只取历史 `X`，不读取未来 `Y`。两组伙伴均须满足相同频率、周期容差和预测跨度漂移限制；匹配组要求圆周相位距离 `≤ π/4`，不匹配组要求 `> π/4`。两组分别从最多 8 个最接近 0 或 π 的候选中按固定 seed 抽取。Real–Real 排除自身及相距不足 `L+H` 的重叠窗口。**没有随机回退，也没有周期不匹配的伙伴。**
 
-```powershell
-$python = 'D:\software\Anacoda\python.exe'
-$dataRoot = 'D:\Code\TimeSeries\datasets\tslib-data\long_term_forecast'
-& $python -m pip install -r experiments/sample_mixed/requirements.txt
+共同锚点池会缩小训练数据；`real` 也在此池上重训，因此它与旧 Real-only 的数值不应直接视作同一基线。`<output>/<dataset>/support.json` 记录可靠率、各类候选覆盖和共同锚点比例；如果共同池为空，准备阶段明确失败，不放宽阈值。所有任务共享相同 seed 的模型初始化、锚点采样流和增强位置流。每个 batch 默认 64 个锚点、其中 32 个位置增强；λ 同时作用于标准化后的历史与目标。每个 run 训练 2,000 updates，每 100 步按真实验证集原尺度 RMSE 选择 `best`，完成后评估真实测试集。
+
+## 四卡运行
+
+在仓库根目录执行；先运行测试：
+
+```bash
+python -m unittest discover -s experiments/mixup/tests_controlled -v
 ```
 
-## 1. 确定性测试
+ETTh1 正式筛选：
 
-检查真实锚点在三组中共享同一抽样流、两种 Mixup 共享增强位置、真实伙伴不与自身相同、历史与目标使用相同权重，以及同一配置和 seed 的完整训练重放得到相同预测。
-
-```powershell
-& $python -m experiments.mixup.tests
+```bash
+python -m experiments.mixup.launch --stage screen --datasets etth1 \
+  --data-root /path/to/long_term_forecast \
+  --output experiments/results/mixup_controlled_etth1 \
+  --devices cuda:0 cuda:1 cuda:2 cuda:3
 ```
 
-## 2. 可选：只准备数据
+每个可运行数据集为 `5 模型 × 3 seed × (1 Real-only + 4 任务 × 3 λ) = 195 runs`。先运行 ETTh1 并检查 `support.json` 的覆盖率，再决定是否扩展。**本地只准备检查**（合成序列 32 条）显示 ETTh1、ETTh2、Electricity、Traffic、Weather 有共同锚点；Exchange 仅 131/5,202（2.5%），Illness 为零，因其可靠真实周期窗口数为零。正式默认池为 1,024 条合成序列，其余任务覆盖率仍须重新检查；增加合成序列不会改变 Illness 的真实周期可靠率。`--stage full` 默认选择上述五个数据集，共 975 runs；**本轮正式测试与跨数据集汇总排除 Exchange 和 Illness**，将其弱周期问题留待后续独立研究。完整试验计划见 [周期与相位受控 Mixup 计划](../mixup_paired/real_synthetic_mixup_paired.md)。如显式添加其他数据集，若共同池为空会明确失败并保存 `support.json`，不会回退或伪造结果。
 
-检查真实时间切分并缓存原 ForecastPFN 模拟序列，不训练模型。默认是 Exchange Rate；`--stage full` 默认七个既定单变量任务。
+`launch` 顺序准备共享合成数据和共同伙伴池，然后按稳定任务序号分片。分片单位是 `(数据集, 模型, seed, λ, 任务)`，每个完整 run 固定在一张 GPU 上；不会拆分单次训练的 batch。每个 worker 独占 `<output>/logs/worker_<id>.log`，日志采用追加模式并含 UTC 启动时间；各 run 独占 `<output>/<dataset>/<model>/<task>/lambda_<λ>/seed_<seed>/`。共享 `assets/` 只在准备阶段写入，worker 只读。启动器等待全部 worker 结束后才统一 `verify` 和 `summarize`。失败时可用**完全相同的命令和输出目录**重跑：已完成的 `metrics.json` 会跳过，未完成 run 从原 seed 重新训练。源码或配置改变时必须使用新输出目录。
 
-```powershell
-& $python -m experiments.mixup.run --stage prepare --data-root $dataRoot --output experiments/results/mixup_prepare
-```
+只占用一张卡时可用 `--devices cuda:0`；CPU 流程检查可用 `--devices cpu` 并覆盖模型、seed、权重和步数。也可分别调用 `experiments.mixup.run --stage prepare` 与带 `--num-shards N --shard-id I --device cuda:I` 的训练命令，但所有 worker 必须采用完全相同的任务网格参数。
 
-## 3. 冒烟训练及核验
+## 结果
 
-默认 Exchange Rate，Linear/GRU、seed 42；每模型训练 Real-only、Real–Real (`λ=0.75`)、Real–Synthetic (`λ=0.75`) 三组，每组 50 updates，共 **6 runs**。`--synthetic-series 32` 仅供快速冒烟，正式实验仍使用默认 1,024 条合成序列。运行结束后从保存的测试预测重算指标，并检查曝光数、时间边界与同模型同 seed 的初始权重。
+统一输出 `report/runs.csv`、`aggregate.csv`、`validation_selected.csv`、`paired_differences.csv`、`report.md`。模型 checkpoint 与 λ 只按验证 RMSE 选择；测试 MAE、RMSE、MASE 仅用于报告。同模型、同 seed、同 λ 的匹配／不匹配对照可从 `paired_differences.csv` 读取。`verify` 检查完整网格、测试预测指标、来源曝光与相同 seed 的初始权重。
 
-```powershell
-& $python -m experiments.mixup.run --stage smoke --data-root $dataRoot --output experiments/results/mixup_smoke --synthetic-series 32
-& $python -m experiments.mixup.verify --output experiments/results/mixup_smoke --expected-runs 6
-```
-
-## 汇总实验结果
-
-训练完成并运行 `verify` 后，使用独立的 Mixup 汇总入口；它读取 `<dataset>/<model>/<mode>/lambda_<weight>/seed_<seed>/metrics.json`，不适用 `sample_mixed.summarize` 的合成占比目录结构。冒烟和正式实验都可以使用同一接口：
-
-```powershell
-& $python -m experiments.mixup.summarize --output experiments/results/mixup_smoke
-& $python -m experiments.mixup.summarize --output experiments/results/mixup_exchange
-```
-
-输出写入对应目录的 `report/`：`report.md` 为图文总结，`runs.csv` 为逐 seed 的 best/final 指标，`aggregate.csv` 为跨 seed 均值、标准差及数量，`paired.csv` 给出同模型、同 seed 相对 Real-only 和同权重 Real–Real 的差值，`validation_selected.csv` 给出按真实验证 RMSE 选出的各模式权重，另有各模型的测试 RMSE 图。只用与 Real-only 完全相同的 seed 集合参与配置选择；缺组时仍汇总已有运行，但不会将不完整组当作可比较的优胜配置。测试集不用于选权重。
-
-`summarize` 也会生成类似样本级混合实验的精简 MASE 视图：`compact_mase.md`、`compact_mase_comparison.png`、`compact_mase_by_ratio.csv`、`compact_mase_best.csv`。两幅面板分别显示 Real–Real 和 Real–Synthetic，横轴是伙伴窗口权重 `1−λ`（0% 为 Real-only），纵轴为真实测试集 MASE。每个数据集、方法和权重先按跨 seed 的**真实验证 RMSE**选模型；每个方法的最终权重也按该验证指标选择，测试 MASE 只用于报告。
-
-如果远程运行后只保留了 `report/runs.csv` 和 `report/aggregate.csv`，可以直接重建精简图表，无需下载模型权重或预测数组：
-
-```powershell
-& $python -m experiments.mixup.summarize --output experiments/results/mixup_exchange --report-only
-```
-
-汇总逻辑的确定性选择测试：
-
-```powershell
-& $python -m experiments.mixup.test_summarize
-```
-
-重构复核已在本地完成：6 次冒烟均通过 `verify`，与重构前保存的同配置冒烟结果比较时，checkpoint 指标、曝光统计及 42 个预测/采样数组完全一致。可按以下命令重复核对（旧结果目录仅在本机存在）：
-
-```powershell
-& $python -m experiments.mixup.verify --output experiments/results/refactor_mixup_smoke --expected-runs 6
-& $python -m experiments.compare_refactor --old experiments/results/mixup_smoke --new experiments/results/refactor_mixup_smoke --expected-runs 6
-```
-
-## 4. Exchange 正式初筛
-
-五模型、三个 seed、`λ={0.9,0.75,0.5}`；每模型/seed 的 Real-only 只训练一次，加两种 Mixup 各三个权重，共 **105 runs**。每组 2,000 updates、batch=64、`p_aug=0.5`。使用新的输出目录，勿与冒烟结果混放。完整运行结束再统一查看测试结果。
-
-```powershell
-& $python -m experiments.mixup.run --stage screen --data-root $DATA_Root --output experiments/results/mixup_exchange
-& $python -m experiments.mixup.verify --output experiments/results/mixup_exchange --expected-runs 105
-& $python -m experiments.mixup.summarize --output experiments/results/mixup_exchange
-```
-
-## 5. 七数据集全量评估与结果汇总
-
-默认覆盖 Exchange、ETTh1、ETTh2、Electricity、Traffic、Weather、Illness；五模型、三个 seed、Real-only 和两种 Mixup 的三个权重，共 **735 runs**。以下命令依次完成训练、从保存的预测和曝光记录核验全部运行、生成汇总报告。`--stage full` 是全量任务入口；`summarize` 读取该输出目录中的全部已完成运行。
-
-```powershell
-& $python -m experiments.mixup.run --stage full --data-root $DATA_Root --output experiments/results/mixup_full
-& $python -m experiments.mixup.verify --output experiments/results/mixup_full --expected-runs 735
-& $python -m experiments.mixup.summarize --output experiments/results/mixup_full
-```
-
-全量报告位于 `experiments/results/mixup_full/report/`：先看 `report.md`，各混合比例的测试 MASE 对照见 `compact_mase.md` 和 `compact_mase_comparison.png`；逐次与汇总数据分别见 `runs.csv`、`aggregate.csv`。模型和权重依据真实验证 RMSE 选择，测试指标只用于报告。
-
-可按数据集分批运行，并在七个数据集全部完成后执行上面的 735-run 核验与汇总。例如先运行 ETTh1：
-
-```powershell
-& $python -m experiments.mixup.run --stage full --datasets etth1 --data-root $dataRoot --output experiments/results/mixup_full
-```
-
-重复使用相同输出目录时，签名一致的已完成运行会跳过；每个数据集的完整网格是 105 runs。需要从已有的 `report/runs.csv`、`report/aggregate.csv` 重新生成精简 MASE 图表时，使用前述 `--report-only` 命令并将 `--output` 改为 `experiments/results/mixup_full`。
-
-可选覆盖：`--models linear gru`、`--seeds 42`、`--weights 0.75`、`--modes real real_synthetic`、`--steps 500`、`--datasets exchange etth1`。改变步数、生成池大小、代码或配置时使用**新输出目录**；运行签名会拒绝复用不一致的已完成任务。
-
-## 方法与输出
-
-每步先从真实训练段抽取 64 个锚点，确定性选出 32 个增强位置。Real-only 不增强；Real–Real 伙伴来自同一真实训练池；Real–Synthetic 伙伴来自固定模拟池。每个窗口分别用其**历史**均值/标准差归一化，然后同一 `λ` 融合完整历史和目标。验证与测试只使用真实数据，按原尺度验证 RMSE 选 `best`，同时保存 `final`。测试预测按真实历史的统计量反变换。仅更新步数与真实锚点曝光量固定；增强组的原样真实曝光较少。
-
-每个 `<dataset>/<model>/<mode>/lambda_<weight>/seed_<seed>/` 保存 `config.json`、`split_manifest.json`、`train_log.csv`、`best.pt`、`final.pt`、`metrics.json`、`predictions.npz`、`exposures.npz`。数据集目录保存真实切分说明、模拟池说明和免训练基线；根目录 `experiment.json` 记录运行环境。`metrics.json` 最后写入，表示该次运行完成。中断后重复同一命令会跳过签名一致的完成项；未完成项从同 seed 重新训练。
-
-冒烟仅验证流程；不依据其测试指标选择模型或 Mixup 权重。真实–真实 Mixup 是判断线性组合本身作用的必要对照；与已有样本级混合结果比较时须注明后者真实窗口曝光量随合成占比变化。
+原 `python -m experiments.mixup_paired.launch`、`run`、`verify` 和 `summarize` 命令名转发到统一实现；旧 `--mode`、`--strategy` 和 `--random-output` 参数不再属于新协议。

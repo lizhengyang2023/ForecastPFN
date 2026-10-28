@@ -1,5 +1,7 @@
 # 真实—模拟 Mixup 下一步试验计划
 
+> 历史方案：随机伙伴实验结果保留作外部参考。当前统一的受控相位对照见 [`README.md`](README.md)。
+
 更新：2026-10-28。状态：方案设计，以下 Mixup 结果尚未产生。工作位置为 ForecastPFN 仓库的 `experiments/`；已有样本级混合代码与结果说明见 [`sample_mixed/README.md`](sample_mixed/README.md) 和 [`sample_mixed/SCREENING_RESULTS.md`](sample_mixed/SCREENING_RESULTS.md)。
 
 ## 1. 已知结果与要回答的问题

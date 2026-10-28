@@ -16,13 +16,12 @@ from experiments.utils.randomness import seed_everything
 from .sampling import BatchSampler, blend
 
 
-def run_one(output, model_name, mode, weight, seed, spec, config, splits, synthetic,
-            manifest, device, identity):
+def run_one(output, model_name, task, weight, seed, spec, config, splits, synthetic,
+            manifest, device, identity, eligible, pools):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
-    request = dict(model=model_name, mode=mode, weight=weight, seed=seed, spec=spec,
-                   config=config, real_sha256=manifest['sha256'], identity=identity,
-                   device=str(device))
+    request = dict(model=model_name, task=task, weight=weight, seed=seed, spec=spec,
+                   config=config, real_sha256=manifest['sha256'], identity=identity)
     signature = hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest()
     result_path = output/'metrics.json'
     if result_path.exists():
@@ -37,8 +36,8 @@ def run_one(output, model_name, mode, weight, seed, spec, config, splits, synthe
     initial_digest = hashlib.sha256(b''.join(t.detach().cpu().numpy().tobytes()
         for t in model.state_dict().values())).hexdigest()
     optimizer = torch.optim.Adam(model.parameters(), lr=config['learning_rate'])
-    sampler = BatchSampler(len(splits['train']['x']), len(synthetic['x']),
-        config['batch_size'], config['augmentation_probability'], seed)
+    sampler = BatchSampler(eligible, pools, len(splits['train']['x']), len(synthetic['x']),
+        config['batch_size'], config['augmentation_probability'], seed, task)
     real_x = torch.as_tensor(splits['train']['x'], device=device)
     real_y = torch.as_tensor(splits['train']['y'], device=device)
     syn_x = torch.as_tensor(synthetic['x'], device=device)
@@ -50,14 +49,14 @@ def run_one(output, model_name, mode, weight, seed, spec, config, splits, synthe
     diagnostic_sum = np.zeros(4, dtype='float64')
     diagnostic_count = 0
     for step in range(1, config['steps']+1):
-        anchors, mask_np, partners = sampler.take(mode)
+        anchors, mask_np, partners = sampler.take()
         mask = torch.as_tensor(mask_np, device=device)
         x, y = real_x[anchors], real_y[anchors]
-        if mode == 'real_real':
+        if task.startswith('real_real'):
             px, py = real_x[partners], real_y[partners]
-        elif mode == 'real_synthetic':
+        elif task.startswith('real_synthetic'):
             px, py = syn_x[partners], syn_y[partners]
-        if mode != 'real':
+        if task != 'real':
             x, y = blend(x, y, px, py, mask, weight)
             # Mean history/target standard deviations before and after blending.
             diagnostic_sum += np.array([real_x[anchors][mask].std(dim=1).mean().item(),
@@ -80,8 +79,8 @@ def run_one(output, model_name, mode, weight, seed, spec, config, splits, synthe
             rows.append(dict(step=step, train_loss=float(loss.detach().cpu()),
                 validation_mae=validation['mae'], validation_rmse=validation['rmse'],
                 anchor_exposures=int(sampler.anchor.exposures.sum()),
-                partner_exposures=int(sampler.real_partner.exposures.sum()
-                    + sampler.synthetic_partner.exposures.sum())))
+                partner_exposures=int(sampler.real_partner_exposures.sum()
+                    + sampler.synthetic_partner_exposures.sum())))
             if validation['rmse'] < best_rmse:
                 best_rmse, best_step, best_validation = validation['rmse'], step, validation
                 best_state = copy.deepcopy(model.state_dict())
@@ -106,16 +105,19 @@ def run_one(output, model_name, mode, weight, seed, spec, config, splits, synthe
     assert abs(checkpoints['best']['validation']['rmse']-best_validation['rmse']) < 1e-9
     np.savez_compressed(output/'predictions.npz', truth=splits['test']['raw_y'],
         origins=splits['test']['origins'], **predictions)
-    np.savez_compressed(output/'exposures.npz', anchors=sampler.anchor.exposures,
-        real_partners=sampler.real_partner.exposures,
-        synthetic_partners=sampler.synthetic_partner.exposures)
-    result = dict(signature=signature, model=model_name, mode=mode, weight=weight,
+    anchor_exposures = np.zeros(len(splits['train']['x']), dtype=np.int64)
+    anchor_exposures[eligible] = sampler.anchor.exposures
+    np.savez_compressed(output/'exposures.npz', anchors=anchor_exposures,
+        real_partners=sampler.real_partner_exposures,
+        synthetic_partners=sampler.synthetic_partner_exposures)
+    result = dict(signature=signature, model=model_name, task=task, weight=weight,
         seed=seed, initial_digest=initial_digest, final_step=config['steps'],
         batch_size=config['batch_size'], augmentation_probability=config['augmentation_probability'],
         exposures=dict(anchors=int(sampler.anchor.exposures.sum()),
-            real_partners=int(sampler.real_partner.exposures.sum()),
-            synthetic_partners=int(sampler.synthetic_partner.exposures.sum())),
+            real_partners=int(sampler.real_partner_exposures.sum()),
+            synthetic_partners=int(sampler.synthetic_partner_exposures.sum())),
         unique_anchors=int((sampler.anchor.exposures>0).sum()),
+        eligible_anchors=len(eligible), device=str(device),
         diagnostics=dict(zip(['real_history_std','mixed_history_std','real_target_std',
                               'mixed_target_std'], (diagnostic_sum/diagnostic_count).tolist()))
             if diagnostic_count else {},
