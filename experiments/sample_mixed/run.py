@@ -7,6 +7,7 @@ import hashlib
 import itertools
 import json
 import platform
+import sys
 import time
 from pathlib import Path
 
@@ -65,6 +66,10 @@ def estimate(config, names, root, profile, output):
 
 
 def main():
+    if '--corpus' in sys.argv[1:]:
+        from .corpus_workflow import main as corpus_main
+        corpus_main([arg for arg in sys.argv[1:] if arg != '--corpus'])
+        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--stage', choices=['smoke','screen','full','prepare','estimate'], required=True)
     parser.add_argument('--data-root', type=Path, required=True)
@@ -99,7 +104,8 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') if args.device=='auto' else torch.device(args.device)
     identity = {str(p.relative_to(PACKAGE.parent)):sha256(p)
                 for p in sorted([*PACKAGE.glob('*.py'), *(PACKAGE.parent/'utils').glob('*.py')])
-                if p.name not in ['summarize.py','verify.py','tests.py']}
+                if p.name not in ['summarize.py','verify.py','tests.py','corpus.py','corpus_workflow.py',
+                                  'corpus_report.py','corpus_audit.py','launch.py']}
     metadata = dict(config=config, datasets=names, python=platform.python_version(), torch=torch.__version__,
         numpy=np.__version__, device=str(device), device_name=torch.cuda.get_device_name(device) if device.type=='cuda' else platform.processor(),
         code_hashes=identity, description='Independent model per real dataset; source fractions are per-batch exposures; no test tuning')

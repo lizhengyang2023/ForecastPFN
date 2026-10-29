@@ -10,6 +10,9 @@ from experiments.utils.evaluate import metrics
 
 
 def verify(root, expected=None, require_grid=False, grid_datasets=None):
+    if (Path(root)/'corpus_experiment.json').exists():
+        from .corpus_audit import verify as verify_corpus
+        return verify_corpus(root, expected)
     paths = sorted(Path(root).glob('*/*/p_*/seed_*/metrics.json'))
     if require_grid:
         plan=json.loads((Path(__file__).resolve().parent/'configs/default.json').read_text())

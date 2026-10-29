@@ -120,6 +120,9 @@ def write_compact_mase_report(report_dir, aggregate, runs):
 
 
 def summarize(root):
+    if (Path(root)/'corpus_experiment.json').exists():
+        from .corpus_report import summarize as summarize_corpus
+        return summarize_corpus(root)
     root=Path(root)
     report_dir=root/'report'
     report_dir.mkdir(parents=True,exist_ok=True)

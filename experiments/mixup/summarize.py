@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from .plot_mase_delta import plot_report
+
 
 def summarize(root):
     root=Path(root)
@@ -67,13 +69,19 @@ def summarize(root):
                             how='left',validate='many_to_one')
         paired[f'delta_mase_vs_{source}_match']=paired.test_mase-paired[f'{source}_matched_mase']
     paired.to_csv(report/'paired_differences.csv',index=False)
+    delta_images=plot_report(report)
     lines=['# 受控相位 Mixup 汇总','',
            f'已完成 {len(runs)//2} 次运行；{runs.dataset.nunique()} 个数据集。',
            '所有任务使用同一历史可靠、四类伙伴均可用的真实锚点池；无周期不匹配的回退。',
            '相位匹配与不匹配均先通过相同周期和未来漂移门槛；Real-only 使用同一锚点池。',
            'best checkpoint 和每个任务的 λ 均按真实验证 RMSE 选择；测试集只用于报告。',
            'MASE 越低越好；± 为训练 seed 标准差。详细结果见 runs.csv、aggregate.csv、'
-           'validation_selected.csv、paired_differences.csv。','']
+           'validation_selected.csv、paired_differences.csv。','',
+           f'各数据集相对 Real 的 MASE 百分比折线图（{len(delta_images)} 张）见 '
+           '[mase_delta.md](mase_delta.md)。','']
+    if (report/'mase_delta_all_lambdas.md').exists():
+        lines += ['全部 λ 的三点及范围带图见 '
+                  '[mase_delta_all_lambdas.md](mase_delta_all_lambdas.md)。','']
     if not selected.empty:
         for dataset,part in selected[selected.checkpoint=='best'].groupby('dataset'):
             support=json.loads((root/dataset/'support.json').read_text(encoding='utf-8'))

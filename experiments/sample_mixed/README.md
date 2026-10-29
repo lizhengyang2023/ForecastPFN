@@ -1,5 +1,30 @@
 # Real/synthetic mixing with small forecasting models
 
+## 统计匹配的独立合成池（新实验）
+
+实验设计、生成器可调参数与判定规则见 [statistical_corpus_plan.md](statistical_corpus_plan.md)。新入口保留本目录原训练协议，比较 `original`、`filtered`、`parameter`、`parameter_filtered` 四种完整样本池。`parameter` 调整每条生成序列的趋势、季节与噪声幅度，倍率仅按真实训练窗口统计选择；`filtered` 使用历史窗口的 rFFT 功率及其他统计特征。候选池仅在 prepare 阶段生成，训练 worker 只读。每种方案的最终合成池大小相同。`report/corpus_stats.csv`、`paired_mase.csv`、`report.md` 和各数据集 MASE 图用于核对池统计与预测效果。
+
+以下命令中的 `$DATA_ROOT` 是真实数据根目录。PowerShell 可先设置 `$DATA_ROOT = '.../long_term_forecast'`。
+
+```powershell
+# CPU 小规模全链路冒烟
+python -m experiments.sample_mixed.launch --stage smoke --data-root $DATA_ROOT --output experiments/results/corpus_smoke --datasets etth1 --models linear --devices cpu
+
+# 3 个数据集、3 模型、3 seeds、4 比例、4 策略的初筛；每张 GPU 一个完整 run worker
+python -m experiments.sample_mixed.launch --stage screen --data-root $DATA_ROOT --output experiments/results/corpus_screen --models linear dlinear mlp --devices cuda:0 cuda:1 cuda:2 cuda:3
+
+# 7 个数据集、5 模型、3 seeds、4 比例、4 策略的全量网格
+python -m experiments.sample_mixed.launch --stage full --data-root $DATA_ROOT --output experiments/results/corpus_full --devices cuda:0 cuda:1 cuda:2 cuda:3
+
+# 随时独立复核或重新生成报告
+python -m experiments.sample_mixed.verify --output experiments/results/corpus_full
+python -m experiments.sample_mixed.summarize --output experiments/results/corpus_full
+```
+
+初筛为 432 runs，全量为 1,680 runs。建议先根据冒烟耗时和硬件容量估计成本。启动器会先准备合成池，再分片训练、核验和汇总；失败后原命令可重跑同签名 run。变更配置或源码应使用新输出目录。
+
+单进程入口统一为 `python -m experiments.sample_mixed.run`：默认保留原始实验；加 `--corpus` 进入四策略实验，例如 `python -m experiments.sample_mixed.run --corpus --stage prepare --data-root $DATA_ROOT --output experiments/results/corpus_full`。`summarize` 与 `verify` 根据输出目录的实验元数据自动识别协议。多卡统一由 `launch` 调用同一个 `run` 入口。
+
 本目录实现每个真实数据集独立训练的混合实验，不是跨数据集预训练。五模型、三 seed、九比例的完整网格为 **7 × 5 × 3 × 9 = 945 runs**。
 
 本地 Exchange Rate 单数据集 135 次正式初筛已完成；指标、基线与成本结论见 [SCREENING_RESULTS.md](SCREENING_RESULTS.md)。
